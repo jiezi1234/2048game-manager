@@ -3,7 +3,7 @@ CREATE DATABASE IF NOT EXISTS game2048
     DEFAULT CHARACTER SET utf8mb4 
     DEFAULT COLLATE utf8mb4_unicode_ci;
 
--- 创建用户并设置密码（需替换 YOUR_PASSWORD 为实际密码）
+-- 创建用户并设置密码
 CREATE USER IF NOT EXISTS 'manager2048'@'localhost' 
     IDENTIFIED BY '2147483647';
 
@@ -14,19 +14,14 @@ FLUSH PRIVILEGES;
 -- 切换到 game2048 数据库
 USE game2048;
 
--- 创建admin表
-CREATE TABLE IF NOT EXISTS admin (
-    id INT PRIMARY KEY AUTO_INCREMENT,
-    name CHAR(50) NOT NULL,
-    password CHAR(50) NOT NULL
-);
 
 -- 创建user表
 CREATE TABLE IF NOT EXISTS user (
     uid INT PRIMARY KEY AUTO_INCREMENT,
     username CHAR(50) NOT NULL UNIQUE,
     password CHAR(50) NOT NULL,
-    blocked BOOLEAN NOT NULL DEFAULT FALSE
+    blocked BOOLEAN NOT NULL DEFAULT FALSE, 
+    is_admin BOOLEAN NOT NULL DEFAULT FALSE 
 );
 
 -- 创建session表

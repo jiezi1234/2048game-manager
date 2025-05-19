@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timedelta
 
 class GameServer:
-    def __init__(self, host='127.0.0.1', port=20480):
+    def __init__(self, host='10.29.107.164', port=20480):
         self.host = host
         self.port = port
         self.server_socket = None
@@ -75,20 +75,19 @@ class GameServer:
             password = self.hash_password(data.get('password'))
             user_type = data.get('user_type')
 
-            if user_type == 'admin':
-                cursor.execute(
-                    "SELECT id FROM admin WHERE name = %s AND password = %s",
-                    (username, password)
-                )
-            else:
-                cursor.execute(
-                    "SELECT uid FROM user WHERE username = %s AND password = %s AND blocked = FALSE",
-                    (username, password)
-                )
+            # 统一查询用户表
+            cursor.execute(
+                "SELECT uid, is_admin FROM user WHERE username = %s AND password = %s AND blocked = FALSE",
+                (username, password)
+            )
 
             result = cursor.fetchone()
             if result:
-                uid = result[0]
+                uid, is_admin = result
+                # 验证用户类型是否匹配
+                if (user_type == 'admin' and not is_admin) or (user_type == 'user' and is_admin):
+                    return {'status': 'error', 'message': '用户类型不匹配'}
+                
                 session_id = self.create_session(uid) #创建会话
                 return {
                     'status': 'success',

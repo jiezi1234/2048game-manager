@@ -4,7 +4,7 @@ import hashlib
 import time
 
 class GameClient:
-    def __init__(self, host='127.0.0.1', port=20480):
+    def __init__(self, host='10.29.107.164', port=20480):
         self.host = host
         self.port = port
         self.session_id = None
