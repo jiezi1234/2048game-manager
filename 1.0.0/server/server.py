@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timedelta
 
 class GameServer:
-    def __init__(self, host='10.29.107.164', port=20480):
+    def __init__(self, host='127.0.0.1', port=20480):
         self.host = host
         self.port = port
         self.server_socket = None
@@ -201,4 +201,5 @@ class GameServer:
 
 if __name__ == "__main__":
     server = GameServer()
+    #server = GameServer(host= '10.29.107.164', port= 20240)
     server.start()
