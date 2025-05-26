@@ -1,48 +1,17 @@
 # coding=utf-8
-from tkinter import Toplevel, Tk, HORIZONTAL, RIGHT, Menu, IntVar, Button, Frame, Scale, Label, messagebox, Entry
+from tkinter import Toplevel, Tk, HORIZONTAL, RIGHT, Menu, IntVar, Button, Frame, Scale, Label, messagebox
 from numpy import zeros, repeat, append, argwhere, concatenate, sum
 from numpy.random import randint, choice
 from PIL import Image, ImageTk
 from random import sample
+import os
 
-class Login:
-    def __init__(self, root):
-        self.root = root
-        self.user_type = None
-        self.setup_login_ui()
-        
-    def setup_login_ui(self):
-        # Create main login frame
-        self.login_frame = Frame(self.root, width=400, height=400)
-        self.login_frame.pack(expand='yes', fill='both')
-        
-        # Title
-        Label(self.login_frame, text='2048 游戏登录', font=("Helvetica", 24, "bold")).pack(pady=40)
-        
-        # Login buttons frame
-        buttons_frame = Frame(self.login_frame)
-        buttons_frame.pack(pady=20)
-        
-        # Regular user login button
-        Button(buttons_frame, text='普通用户登录', 
-               font=("Helvetica", 16),
-               width=15,
-               command=lambda: self.login('user')).pack(pady=10)
-        
-        # Admin login button
-        Button(buttons_frame, text='管理员登录', 
-               font=("Helvetica", 16),
-               width=15,
-               command=lambda: self.login('admin')).pack(pady=10)
-    
-    def login(self, user_type):
-        self.user_type = user_type
-        self.login_frame.destroy()
-        return user_type
+# 获取项目根目录的绝对路径
+basic_dir = os.path.dirname(os.path.abspath(__file__))
 
 class Game2048():
-    def __init__(self):
-        self.root = Tk()
+    def __init__(self, master=None):
+        self.root = master if master else Tk()
         self.length = 4
         self.size_label = 100
         self.number_start = 4
@@ -54,27 +23,13 @@ class Game2048():
         self.start_frame = None
         self.score = 0  # 添加分数变量
         self.moves = 0  # 添加步数变量
-        self.user_type = None
-        self.show_login_screen()
-
-    def show_login_screen(self):
-        login = Login(self.root)
-        self.root.wait_window(login.login_frame)
-        if login.user_type:
-            self.user_type = login.user_type
-            self.show_start_screen()
-        else:
-            self.root.quit()
+        self.show_start_screen()
 
     def show_start_screen(self):
         self.start_frame = Frame(self.root, width=400, height=400)
         self.start_frame.pack(expand='yes', fill='both')
         Label(self.start_frame, text='2048 游戏', font=("Helvetica", 32, "bold")).pack(pady=60)
         Button(self.start_frame, text='开始游戏', font=("Helvetica", 20), command=self.start_game).pack(pady=20)
-        
-        # Show user type
-        user_type_text = "管理员模式" if self.user_type == 'admin' else "普通用户模式"
-        Label(self.start_frame, text=user_type_text, font=("Helvetica", 16)).pack(pady=10)
 
     def start_game(self):
         if self.start_frame:
@@ -117,7 +72,7 @@ class Game2048():
         self.root.title('2048游戏')
         # 将图片数据存入images中
         for num in self.numbers:
-            file = '.\\images\\' + str(num) + '.GIF'
+            file = os.path.join(basic_dir, 'images', str(num) + '.GIF')
             self.images['img%d'%num] = self.resize(self.size_label, self.size_label, file)
         # 捕捉键盘事件
         self.root.bind("<Key>", self.sum_by_direction)
