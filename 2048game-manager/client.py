@@ -3,10 +3,20 @@ import json
 import socket
 from tkinter import Tk, Frame, Label, Button, Entry, messagebox, Toplevel
 from main import Game2048
+import subprocess
+import sys
+import os
+import signal
 
 class AuthGUI:
     def __init__(self, root):
         self.root = root
+        self.admin_process = None
+        self.game_window = None
+        self.session_id = None
+
+        # 设置窗口关闭事件处理
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # 启动时先检查服务器连接
         if not self.check_server_connection():
@@ -57,7 +67,7 @@ class AuthGUI:
         """显示注册窗口"""
         register_window = Toplevel(self.root)
         register_window.title("用户注册")
-        register_window.geometry("400x300")
+        register_window.geometry("400x400")
         
         frame = Frame(register_window, padx=20, pady=20)
         frame.pack(expand='yes', fill='both')
@@ -168,16 +178,39 @@ class AuthGUI:
                 response = json.loads(client.recv(4096).decode('utf-8'))
                 
                 if response['status'] == 'success':
+                    self.session_id = response['session_id']  # 保存会话ID
                     messagebox.showinfo("成功", "登录成功！")
                     login_window.destroy()
                     
                     if user_type == "user":
                         self.root.withdraw()
-                        game_window = Toplevel()
-                        game = Game2048(game_window)
-                        game_window.protocol("WM_DELETE_WINDOW", lambda: self.on_game_close(game))
+                        self.game_window = Toplevel()
+                        self.game_window.protocol("WM_DELETE_WINDOW", self.on_game_close)
+                        game = Game2048(self.game_window)
                     else:
-                        messagebox.showinfo("提示", "管理员功能开发中...")
+                        # 启动管理员界面
+                        self.root.withdraw()
+                        try:
+                            # 获取当前脚本所在目录
+                            current_dir = os.path.dirname(os.path.abspath(__file__))
+                            admin_path = os.path.join(current_dir, "admin.py")
+                            
+                            # 使用Python解释器启动admin.py
+                            self.admin_process = subprocess.Popen([sys.executable, admin_path])
+                            
+                            # 当管理员界面关闭时，显示主界面
+                            def check_admin_closed():
+                                if self.admin_process and self.admin_process.poll() is not None:
+                                    # 管理员进程已结束
+                                    self.admin_process = None
+                                    self.root.deiconify()
+                                    return
+                                self.root.after(1000, check_admin_closed)
+                            
+                            self.root.after(1000, check_admin_closed)
+                        except Exception as e:
+                            messagebox.showerror("错误", f"启动管理员界面失败: {str(e)}")
+                            self.root.deiconify()
                 else:
                     messagebox.showerror("错误", response['message'])
             except Exception as e:
@@ -188,10 +221,57 @@ class AuthGUI:
         Button(frame, text='登录', font=("Helvetica", 14), width=15,
                command=do_login).pack(pady=20)
 
-    def on_game_close(self, game):
+    def on_game_close(self):
         """处理游戏窗口关闭事件"""
-        game.root.destroy()
-        self.root.deiconify()
+        if messagebox.askokcancel("退出", "确定要退出游戏吗？"):
+            try:
+                # 发送登出请求
+                if self.session_id:
+                    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    client.connect(('127.0.0.1', 20480))
+                    request = {
+                        "action": "logout",
+                        "session_id": self.session_id
+                    }
+                    client.send(json.dumps(request).encode('utf-8'))
+                    client.close()
+            except:
+                pass  # 忽略登出时的错误
+            finally:
+                if self.game_window:
+                    self.game_window.destroy()
+                self.session_id = None
+                self.root.deiconify()
+
+    def on_closing(self):
+        """处理主窗口关闭事件"""
+        if messagebox.askokcancel("退出", "确定要退出系统吗？"):
+            try:
+                # 发送登出请求
+                if self.session_id:
+                    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    client.connect(('127.0.0.1', 20480))
+                    request = {
+                        "action": "logout",
+                        "session_id": self.session_id
+                    }
+                    client.send(json.dumps(request).encode('utf-8'))
+                    client.close()
+            except:
+                pass  # 忽略登出时的错误
+            finally:
+                # 关闭管理员进程（如果存在）
+                if self.admin_process:
+                    try:
+                        self.admin_process.terminate()
+                        self.admin_process.wait(timeout=5)
+                    except:
+                        self.admin_process.kill()
+                # 关闭游戏窗口（如果存在）
+                if self.game_window:
+                    self.game_window.destroy()
+                # 关闭主窗口
+                self.root.quit()
 
 if __name__ == "__main__":
     root = Tk()

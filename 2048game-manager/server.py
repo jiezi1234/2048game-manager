@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 import json
 import socket
 import threading
+import signal
+import sys
 
 class AuthManager:
     def __init__(self, host='127.0.0.1', port=20480):
@@ -13,7 +15,30 @@ class AuthManager:
         self.port = port
         self.server_socket = None
         self.db_connection = None
+        self.running = True
         self.setup_database()
+        
+        # 设置信号处理
+        signal.signal(signal.SIGINT, self.handle_shutdown)
+        signal.signal(signal.SIGTERM, self.handle_shutdown)
+        
+    def handle_shutdown(self, signum, frame):
+        """处理关闭信号"""
+        print("\n正在关闭服务器...")
+        self.running = False
+        if self.server_socket:
+            # 创建一个临时连接来解除accept的阻塞
+            try:
+                temp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                temp_socket.connect((self.host, self.port))
+                temp_socket.close()
+            except:
+                pass
+            self.server_socket.close()
+        if self.db_connection:
+            self.db_connection.close()
+        print("服务器已关闭")
+        sys.exit(0)
         
     def setup_database(self):
         """设置数据库连接"""
@@ -110,7 +135,7 @@ class AuthManager:
                     'session_id': session_id,
                     'uid': uid
                 }
-            return {'status': 'error', 'message': '用户名或密码错误'}
+            return {'status': 'error', 'message': '用户名或密码错误 或者 已被封禁'}
         except Error as e:
             print(f"登录错误: {e}")
             return {'status': 'error', 'message': '服务器错误'}
@@ -130,38 +155,101 @@ class AuthManager:
         finally:
             cursor.close()
 
+    def get_user_list(self, search_term=None):
+        """获取用户列表"""
+        cursor = self.db_connection.cursor()
+        try:
+            if search_term:
+                cursor.execute(
+                    "SELECT uid, username, blocked, is_admin FROM user WHERE LOWER(username) LIKE %s",
+                    (f"%{search_term.lower()}%",)
+                )
+            else:
+                cursor.execute("SELECT uid, username, blocked, is_admin FROM user")
+            
+            users = []
+            for row in cursor.fetchall():
+                users.append({
+                    'uid': row[0],
+                    'username': row[1],
+                    'blocked': bool(row[2]),
+                    'is_admin': bool(row[3])
+                })
+            return {'status': 'success', 'users': users}
+        except Error as e:
+            print(f"获取用户列表错误: {e}")
+            return {'status': 'error', 'message': '服务器错误'}
+        finally:
+            cursor.close()
+
+    def ban_user(self, uid):
+        """封禁用户"""
+        cursor = self.db_connection.cursor()
+        try:
+            cursor.execute("UPDATE user SET blocked = TRUE WHERE uid = %s", (uid,))
+            self.db_connection.commit()
+            return {'status': 'success', 'message': '用户已封禁'}
+        except Error as e:
+            print(f"封禁用户错误: {e}")
+            return {'status': 'error', 'message': '服务器错误'}
+        finally:
+            cursor.close()
+
+    def unban_user(self, uid):
+        """解封用户"""
+        cursor = self.db_connection.cursor()
+        try:
+            cursor.execute("UPDATE user SET blocked = FALSE WHERE uid = %s", (uid,))
+            self.db_connection.commit()
+            return {'status': 'success', 'message': '用户已解封'}
+        except Error as e:
+            print(f"解封用户错误: {e}")
+            return {'status': 'error', 'message': '服务器错误'}
+        finally:
+            cursor.close()
+
     def handle_client(self, client_socket, address):
         """处理客户端连接"""
         print(f"接受来自 {address} 的连接")
         try:
-            while True:
-                data = client_socket.recv(4096)
-                if not data:
+            while self.running:
+                try:
+                    data = client_socket.recv(4096)
+                    if not data:
+                        break
+
+                    request = json.loads(data.decode('utf-8'))
+                    action = request.get('action')
+                    response = None
+
+                    if action == 'register':
+                        response = self.register_user(
+                            request.get('username'),
+                            request.get('password'),
+                            request.get('is_admin', False)
+                        )
+                    elif action == 'login':
+                        response = self.login(
+                            request.get('username'),
+                            request.get('password'),
+                            request.get('user_type', 'user')
+                        )
+                    elif action == 'logout':
+                        response = self.logout(request.get('session_id'))
+                    elif action == 'get_user_list':
+                        response = self.get_user_list(request.get('search_term'))
+                    elif action == 'ban_user':
+                        response = self.ban_user(request.get('uid'))
+                    elif action == 'unban_user':
+                        response = self.unban_user(request.get('uid'))
+
+                    if response:
+                        client_socket.send(json.dumps(response).encode('utf-8'))
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    print(f"处理客户端 {address} 时出错: {e}")
                     break
-
-                request = json.loads(data.decode('utf-8'))
-                action = request.get('action')
-                response = None
-
-                if action == 'register':
-                    response = self.register_user(
-                        request.get('username'),
-                        request.get('password'),
-                        request.get('is_admin', False)
-                    )
-                elif action == 'login':
-                    response = self.login(
-                        request.get('username'),
-                        request.get('password'),
-                        request.get('user_type', 'user')
-                    )
-                elif action == 'logout':
-                    response = self.logout(request.get('session_id'))
-
-                if response:
-                    client_socket.send(json.dumps(response).encode('utf-8'))
-        except Exception as e:
-            print(f"处理客户端 {address} 时出错: {e}")
         finally:
             client_socket.close()
             print(f"与 {address} 的连接已关闭")
@@ -175,14 +263,23 @@ class AuthManager:
             self.server_socket.bind((self.host, self.port))
             self.server_socket.listen(5)
             print(f"认证服务器正在监听 {self.host}:{self.port}")
+            print("按 Ctrl+C 可以安全退出服务器")
             
-            while True:
-                client_socket, address = self.server_socket.accept()
-                client_thread = threading.Thread(
-                    target=self.handle_client,
-                    args=(client_socket, address)
-                )
-                client_thread.start()
+            while self.running:
+                try:
+                    self.server_socket.settimeout(1)  # 设置超时，以便能够响应关闭信号
+                    client_socket, address = self.server_socket.accept()
+                    client_thread = threading.Thread(
+                        target=self.handle_client,
+                        args=(client_socket, address)
+                    )
+                    client_thread.daemon = True  # 设置为守护线程，这样主线程退出时，这些线程也会退出
+                    client_thread.start()
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    if self.running:  # 只有在服务器仍在运行时才打印错误
+                        print(f"接受连接时出错: {e}")
         except Exception as e:
             print(f"服务器错误: {e}")
         finally:
