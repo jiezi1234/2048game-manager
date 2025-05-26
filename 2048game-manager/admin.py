@@ -27,11 +27,10 @@ class AdminPanel:
         ttk.Button(search_frame, text="搜索", command=self.search_user).pack(side=tk.LEFT)
         
         # 用户列表
-        self.tree = ttk.Treeview(self.window, columns=("用户ID", "用户名", "状态", "管理员"), show="headings")
+        self.tree = ttk.Treeview(self.window, columns=("用户ID", "用户名", "状态"), show="headings")
         self.tree.heading("用户ID", text="用户ID")
         self.tree.heading("用户名", text="用户名")
         self.tree.heading("状态", text="状态")
-        self.tree.heading("管理员", text="管理员")
         self.tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
         # 操作按钮
@@ -77,14 +76,14 @@ class AdminPanel:
                 self.tree.delete(item)
                 
             for user in response['users']:
-                status = "已封禁" if user['blocked'] else "正常"
-                admin_status = "是" if user['is_admin'] else "否"
-                self.tree.insert("", tk.END, values=(
-                    user['uid'],
-                    user['username'],
-                    status,
-                    admin_status
-                ))
+                # 只显示非管理员用户
+                if not user['is_admin']:
+                    status = "已封禁" if user['blocked'] else "正常"
+                    self.tree.insert("", tk.END, values=(
+                        user['uid'],
+                        user['username'],
+                        status
+                    ))
         elif response:
             messagebox.showerror("错误", response['message'])
             
@@ -101,14 +100,14 @@ class AdminPanel:
                 self.tree.delete(item)
                 
             for user in response['users']:
-                status = "已封禁" if user['blocked'] else "正常"
-                admin_status = "是" if user['is_admin'] else "否"
-                self.tree.insert("", tk.END, values=(
-                    user['uid'],
-                    user['username'],
-                    status,
-                    admin_status
-                ))
+                # 只显示非管理员用户
+                if not user['is_admin']:
+                    status = "已封禁" if user['blocked'] else "正常"
+                    self.tree.insert("", tk.END, values=(
+                        user['uid'],
+                        user['username'],
+                        status
+                    ))
         elif response:
             messagebox.showerror("错误", response['message'])
             

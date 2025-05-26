@@ -161,11 +161,11 @@ class AuthManager:
         try:
             if search_term:
                 cursor.execute(
-                    "SELECT uid, username, blocked, is_admin FROM user WHERE LOWER(username) LIKE %s",
+                    "SELECT uid, username, blocked, is_admin FROM user WHERE LOWER(username) LIKE %s AND is_admin = FALSE",
                     (f"%{search_term.lower()}%",)
                 )
             else:
-                cursor.execute("SELECT uid, username, blocked, is_admin FROM user")
+                cursor.execute("SELECT uid, username, blocked, is_admin FROM user WHERE is_admin = FALSE")
             
             users = []
             for row in cursor.fetchall():
@@ -186,6 +186,14 @@ class AuthManager:
         """封禁用户"""
         cursor = self.db_connection.cursor()
         try:
+            # 首先检查用户是否为管理员
+            cursor.execute("SELECT is_admin FROM user WHERE uid = %s", (uid,))
+            result = cursor.fetchone()
+            if not result:
+                return {'status': 'error', 'message': '用户不存在'}
+            if result[0]:
+                return {'status': 'error', 'message': '不能封禁管理员账号'}
+                
             cursor.execute("UPDATE user SET blocked = TRUE WHERE uid = %s", (uid,))
             self.db_connection.commit()
             return {'status': 'success', 'message': '用户已封禁'}
@@ -199,6 +207,14 @@ class AuthManager:
         """解封用户"""
         cursor = self.db_connection.cursor()
         try:
+            # 首先检查用户是否为管理员
+            cursor.execute("SELECT is_admin FROM user WHERE uid = %s", (uid,))
+            result = cursor.fetchone()
+            if not result:
+                return {'status': 'error', 'message': '用户不存在'}
+            if result[0]:
+                return {'status': 'error', 'message': '不能解封管理员账号'}
+                
             cursor.execute("UPDATE user SET blocked = FALSE WHERE uid = %s", (uid,))
             self.db_connection.commit()
             return {'status': 'success', 'message': '用户已解封'}
