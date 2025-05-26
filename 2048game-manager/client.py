@@ -187,6 +187,13 @@ class AuthGUI:
                         self.game_window = Toplevel()
                         self.game_window.protocol("WM_DELETE_WINDOW", self.on_game_close)
                         game = Game2048(self.game_window)
+                        
+                        # 绑定游戏结束事件
+                        def on_game_over(event):
+                            stats = game.get_game_stats()
+                            self.send_game_record(stats['score'], stats['steps'])
+                        
+                        self.game_window.bind("<<GameOver>>", on_game_over)
                     else:
                         # 启动管理员界面
                         self.root.withdraw()
@@ -220,6 +227,29 @@ class AuthGUI:
         
         Button(frame, text='登录', font=("Helvetica", 14), width=15,
                command=do_login).pack(pady=20)
+
+    def send_game_record(self, score, steps):
+        """发送游戏记录到服务器"""
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect(('127.0.0.1', 20480))
+            
+            request = {
+                "action": "save_record",
+                "session_id": self.session_id,
+                "score": int(score),  # 转换为Python原生int类型
+                "steps": int(steps)   # 转换为Python原生int类型
+            }
+            
+            client.send(json.dumps(request).encode('utf-8'))
+            response = json.loads(client.recv(4096).decode('utf-8'))
+            
+            if response['status'] != 'success':
+                print(f"保存游戏记录失败: {response['message']}")
+        except Exception as e:
+            print(f"发送游戏记录失败: {str(e)}")
+        finally:
+            client.close()
 
     def on_game_close(self):
         """处理游戏窗口关闭事件"""

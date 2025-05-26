@@ -224,6 +224,58 @@ class AuthManager:
         finally:
             cursor.close()
 
+    def save_record(self, session_id, score, steps):
+        """保存游戏记录"""
+        cursor = self.db_connection.cursor()
+        try:
+            # 验证会话
+            uid = self.verify_session(session_id)
+            if not uid:
+                return {'status': 'error', 'message': '无效的会话'}
+            
+            # 保存记录
+            cursor.execute(
+                "INSERT INTO record (uid, created_at, score, step) VALUES (%s, NOW(), %s, %s)",
+                (uid, score, steps)
+            )
+            self.db_connection.commit()
+            return {'status': 'success', 'message': '记录保存成功'}
+        except Error as e:
+            print(f"保存记录错误: {e}")
+            return {'status': 'error', 'message': '服务器错误'}
+        finally:
+            cursor.close()
+
+    def get_records(self, session_id):
+        """获取用户游戏记录"""
+        cursor = self.db_connection.cursor()
+        try:
+            # 验证会话
+            uid = self.verify_session(session_id)
+            if not uid:
+                return {'status': 'error', 'message': '无效的会话'}
+            
+            # 获取最近10条记录
+            cursor.execute(
+                "SELECT created_at, score, step FROM record WHERE uid = %s ORDER BY created_at DESC LIMIT 10",
+                (uid,)
+            )
+            
+            records = []
+            for row in cursor.fetchall():
+                records.append({
+                    'created_at': row[0].strftime('%Y-%m-%d %H:%M:%S'),
+                    'score': row[1],
+                    'steps': row[2]
+                })
+            
+            return {'status': 'success', 'records': records}
+        except Error as e:
+            print(f"获取记录错误: {e}")
+            return {'status': 'error', 'message': '服务器错误'}
+        finally:
+            cursor.close()
+
     def handle_client(self, client_socket, address):
         """处理客户端连接"""
         print(f"接受来自 {address} 的连接")
@@ -258,6 +310,14 @@ class AuthManager:
                         response = self.ban_user(request.get('uid'))
                     elif action == 'unban_user':
                         response = self.unban_user(request.get('uid'))
+                    elif action == 'save_record':
+                        response = self.save_record(
+                            request.get('session_id'),
+                            request.get('score'),
+                            request.get('steps')
+                        )
+                    elif action == 'get_records':
+                        response = self.get_records(request.get('session_id'))
 
                     if response:
                         client_socket.send(json.dumps(response).encode('utf-8'))

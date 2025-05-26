@@ -16,14 +16,27 @@ class Game2048():
         self.size_label = 100
         self.number_start = 4
         self.step = 1
-        self.labels = globals()
-        self.frames = globals()
-        self.images = globals()
+        self.labels = {}
+        self.frames = {}
+        self.images = {}
         self.numbers = [0,2,4,8,16,32,64,128,256,512,1024,2048,4096,8192,16384,32768,65536,131072]
         self.start_frame = None
         self.score = 0  # 添加分数变量
         self.moves = 0  # 添加步数变量
         self.show_start_screen()
+
+    def game_over(self):
+        """游戏结束处理"""
+        messagebox.showinfo("游戏结束", f"游戏结束！\n最终分数: {self.score}\n总步数: {self.moves}")
+        # 触发游戏结束事件
+        self.root.event_generate("<<GameOver>>")
+        
+    def get_game_stats(self):
+        """获取游戏统计信息"""
+        return {
+            'score': self.score,
+            'steps': self.moves
+        }
 
     def show_start_screen(self):
         self.start_frame = Frame(self.root, width=400, height=400)
@@ -40,16 +53,24 @@ class Game2048():
         self.new_game(distroy=False)
 
     # 更改图片的大小使之适应label的大小
-    def resize(self,w_box, h_box, image_file):  # 参数是：要适应的窗口宽、高、Image.open后的图片
-        pil_image = Image.open(image_file)  # 以一个PIL图像对象打开  【调整待转图片格式】
-        w, h = pil_image.size  # 获取图像的原始大小
-        f1 = 1.0 * w_box / w
-        f2 = 1.0 * h_box / h
-        factor = min([f1, f2])
-        width = int(w * factor)
-        height = int(h * factor)
-        pil_image_resized = pil_image.resize((width, height), Image.Resampling.LANCZOS)
-        return ImageTk.PhotoImage(pil_image_resized)
+    def resize(self, w_box, h_box, image_file):
+        """调整图片大小"""
+        try:
+            pil_image = Image.open(image_file)
+            w, h = pil_image.size
+            f1 = 1.0 * w_box / w
+            f2 = 1.0 * h_box / h
+            factor = min([f1, f2])
+            width = int(w * factor)
+            height = int(h * factor)
+            pil_image_resized = pil_image.resize((width, height), Image.Resampling.LANCZOS)
+            return ImageTk.PhotoImage(pil_image_resized)
+        except Exception as e:
+            print(f"加载图片失败: {e}")
+            # 创建一个默认的纯色图片
+            img = Image.new('RGB', (w_box, h_box), color='#cdc1b4')
+            return ImageTk.PhotoImage(img)
+
     # 设置几种弹窗窗口
     def help(self):  # help窗口
         messagebox.showinfo(title='Hi,这是你需要的帮助（^-^）',
@@ -57,26 +78,41 @@ class Game2048():
     def success(self):  # help窗口
         anser = messagebox.askokcancel('通关成功（^-^)', '是否重新开始？')
         if anser:
+            self.game_over()  # 添加游戏结束事件触发
             self.new_game()
+        else:
+            self.game_over()  # 添加游戏结束事件触发
     def fail(self):  # help窗口
         anser = messagebox.askokcancel('游戏失败（-……-)', '是否重新开始？')
         if anser:
+            self.game_over()  # 添加游戏结束事件触发
             self.new_game()
+        else:
+            self.game_over()  # 添加游戏结束事件触发
     # 初始化窗口函数
-    def new_game(self, distroy = True):
+    def new_game(self, distroy=True):
         if distroy:     # 重新开始游戏则摧毁之前的窗口初始化游戏
             self.root.destroy()
             self.root = Tk()
         # 创建主窗口
         self.root.resizable(0,0)
         self.root.title('2048游戏')
+        
         # 将图片数据存入images中
         for num in self.numbers:
-            file = os.path.join(basic_dir, 'images', str(num) + '.GIF')
-            self.images['img%d'%num] = self.resize(self.size_label, self.size_label, file)
+            try:
+                file = os.path.join(basic_dir, 'images', str(num) + '.GIF')
+                self.images[f'img{num}'] = self.resize(self.size_label, self.size_label, file)
+            except Exception as e:
+                print(f"加载图片 {num} 失败: {e}")
+                # 创建一个默认的纯色图片
+                img = Image.new('RGB', (self.size_label, self.size_label), color='#cdc1b4')
+                self.images[f'img{num}'] = ImageTk.PhotoImage(img)
+        
         # 捕捉键盘事件
         self.root.bind("<Key>", self.sum_by_direction)
         self.root.focus_set()
+        
         # 创建menubar栏
         self.menubar = Menu(self.root)
         self.filemenu = Menu(self.menubar, tearoff=0)
@@ -113,7 +149,6 @@ class Game2048():
         self.game_container = Frame(self.main_frame)
         self.game_container.pack(expand=True, fill='both', padx=20, pady=20)
 
-
         # 创建上下按钮样式
         button_style1 = {'font': ('Helvetica', 16, 'bold'), 
                        'width': 3, 
@@ -121,7 +156,7 @@ class Game2048():
                        'relief': 'raised',
                        'bg': '#9b9450'}
 
-         # 创建左右按钮样式
+        # 创建左右按钮样式
         button_style2 = {'font': ('Helvetica', 16, 'bold'), 
                        'width': 3, 
                        'height': 2,
@@ -158,19 +193,22 @@ class Game2048():
         arr[randint(0,self.length**2,self.number_start)] = choice([2,4],self.number_start)
         self.data = arr.reshape(self.length,self.length)
         self.history_data[0] = self.data
+        
         # 初始化label数据
         ord = 0
         for i in range(self.length):
-            self.frames['fra%d'%i] = Frame(self.game_frame)
-            self.frames['fra%d'%i].pack(side='top',expand='yes',fill='both')
+            self.frames[f'fra{i}'] = Frame(self.game_frame)
+            self.frames[f'fra{i}'].pack(side='top',expand='yes',fill='both')
             for j in range(self.length):
-                number = self.data[i,j]
-                self.labels['lab%d'%ord] = Label(self.frames['fra%d'%i], text=number if number!=0 else '',
-                                                    font = ("Helvetica 16 bold italic",20),
-                                                    relief='ridge',
-                                                    image = self.images['img%d'%number],
-                                                    width = self.size_label, height=self.size_label)
-                self.labels['lab%d'%ord].pack(side='left',expand='YES',fill='both')
+                number = int(self.data[i,j])  # 确保number是Python原生int类型
+                self.labels[f'lab{ord}'] = Label(self.frames[f'fra{i}'], 
+                                               text=str(number) if number!=0 else '',
+                                               font=("Helvetica", 20, "bold"),
+                                               relief='ridge',
+                                               image=self.images[f'img{number}'],
+                                               width=self.size_label, 
+                                               height=self.size_label)
+                self.labels[f'lab{ord}'].pack(side='left',expand='YES',fill='both')
                 ord += 1
 
     def button_move(self, direction):
@@ -178,13 +216,13 @@ class Game2048():
         event = type('Event', (), {'keysym': direction})()
         self.sum_by_direction(event)
 
-    # 打印数据（更换数字更新后label的图片参数
     def print_data(self):
+        """更新界面显示"""
         ord = 0
         for i in range(self.length):
             for j in range(self.length):
-                number = self.data[i,j]
-                self.labels['lab%d' % ord]['image'] = self.images['img%d'%number]
+                number = int(self.data[i,j])  # 确保number是Python原生int类型
+                self.labels[f'lab{ord}']['image'] = self.images[f'img{number}']
                 ord += 1
 
     # 定义加和算法
@@ -322,6 +360,7 @@ class Setting(Toplevel):
     def cancel(self):
         self.userinfo = None # 空！
         self.destroy()
+
 if __name__ == '__main__':
     game = Game2048()
     game.root.mainloop()
