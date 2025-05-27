@@ -5,6 +5,8 @@ from numpy.random import randint, choice
 from PIL import Image, ImageTk
 from random import sample
 import os
+import socket
+import json
 
 # 获取项目根目录的绝对路径
 basic_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,14 +25,49 @@ class Game2048():
         self.start_frame = None
         self.score = 0  # 添加分数变量
         self.moves = 0  # 添加步数变量
+        
+        # 从父窗口获取session_id
+        if master and hasattr(master, 'session_id'):
+            self.session_id = master.session_id
+        else:
+            self.session_id = None
+            
         self.show_start_screen()
 
     def game_over(self):
         """游戏结束处理"""
         messagebox.showinfo("游戏结束", f"游戏结束！\n最终分数: {self.score}\n总步数: {self.moves}")
+        
+        # 保存游戏记录
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect(('127.0.0.1', 20480))
+            
+            request = {
+                'action': 'save_record',
+                'session_id': self.session_id,  # 需要从父窗口获取session_id
+                'score': self.score,
+                'steps': self.moves
+            }
+            
+            client.send(json.dumps(request).encode('utf-8'))
+            response = json.loads(client.recv(4096).decode('utf-8'))
+            client.close()
+            
+            if response['status'] != 'success':
+                print(f"保存游戏记录失败: {response['message']}")
+        except Exception as e:
+            print(f"保存游戏记录失败: {str(e)}")
+        
         # 触发游戏结束事件
         self.root.event_generate("<<GameOver>>")
         
+        # 销毁当前游戏窗口，返回到开始界面
+        if self.root:
+            self.root.destroy()
+            self.root = Tk()
+            self.show_start_screen()
+
     def get_game_stats(self):
         """获取游戏统计信息"""
         return {
@@ -41,8 +78,120 @@ class Game2048():
     def show_start_screen(self):
         self.start_frame = Frame(self.root, width=400, height=400)
         self.start_frame.pack(expand='yes', fill='both')
-        Label(self.start_frame, text='2048 游戏', font=("Helvetica", 32, "bold")).pack(pady=60)
-        Button(self.start_frame, text='开始游戏', font=("Helvetica", 20), command=self.start_game).pack(pady=20)
+        
+        # 创建左侧游戏标题和开始按钮
+        left_frame = Frame(self.start_frame)
+        left_frame.pack(side='left', fill='both', expand=True, padx=20)
+        
+        Label(left_frame, text='2048 游戏', font=("Helvetica", 32, "bold")).pack(pady=60)
+        Button(left_frame, text='开始游戏', font=("Helvetica", 20), command=self.start_game).pack(pady=20)
+        
+        # 创建右侧排行榜
+        right_frame = Frame(self.start_frame)
+        right_frame.pack(side='right', fill='both', expand=True, padx=20)
+        
+        # 添加排行榜标题和装饰线
+        title_frame = Frame(right_frame)
+        title_frame.pack(fill='x', pady=(0, 20))
+        
+        # 左侧装饰线
+        Frame(title_frame, height=2, width=135, bg='#e74c3c').pack(side='left', padx=(0, 20))
+        
+        # 标题
+        Label(title_frame, text='排行榜', font=("Helvetica", 28, "bold"), 
+              fg='#2c3e50').pack(side='left',padx=20)
+        
+        # 右侧装饰线
+        Frame(title_frame, height=2, width=135, bg='#e74c3c').pack(side='left', padx=(20, 0))
+        
+        # 获取排行榜数据
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect(('127.0.0.1', 20480))
+            
+            request = {
+                'action': 'get_leaderboard'
+            }
+            client.send(json.dumps(request).encode('utf-8'))
+            response = json.loads(client.recv(4096).decode('utf-8'))
+            client.close()
+            
+            if response and response.get('status') == 'success':
+                leaderboard = response.get('leaderboard', [])
+                
+                # 创建表头
+                header_frame = Frame(right_frame)
+                header_frame.pack(fill='x', pady=(0, 15))
+                
+                # 表头装饰线
+                Frame(header_frame, height=1, bg='#ecf0f1').pack(fill='x', pady=(0, 10))
+                
+                Label(header_frame, text='排名', width=5, font=("Helvetica", 12),
+                      fg='#7f8c8d').pack(side='left', padx=5)
+                Label(header_frame, text='用户名', width=12, font=("Helvetica", 12),
+                      fg='#7f8c8d').pack(side='left', padx=40)
+                Label(header_frame, text='分数', width=8, font=("Helvetica", 12),
+                      fg='#7f8c8d').pack(side='left', padx=5)
+                Label(header_frame, text='步数', width=8, font=("Helvetica", 12),
+                      fg='#7f8c8d').pack(side='left', padx=30)
+                
+                # 显示排行榜数据
+                for i, record in enumerate(leaderboard, 1):
+                    # 为前三名使用不同的样式
+                    if i == 1:
+                        rank_color = '#FFD700'  # 金色
+                        name_color = '#FFD700'  # 金色
+                        score_color = '#FFD700'  # 金色
+                        rank_text = '冠军'
+                    elif i == 2:
+                        rank_color = '#C0C0C0'  # 银色
+                        name_color = '#C0C0C0'  # 银色
+                        score_color = '#C0C0C0'  # 银色
+                        rank_text = '亚军'
+                    elif i == 3:
+                        rank_color = '#CD7F32'  # 铜色
+                        name_color = '#CD7F32'  # 铜色
+                        score_color = '#CD7F32'  # 铜色
+                        rank_text = '季军'
+                    else:
+                        rank_color = '#7f8c8d'  # 灰色
+                        name_color = '#34495e'  # 深灰色
+                        score_color = '#7f8c8d'  # 灰色
+                        rank_text = str(i)
+                    
+                    record_frame = Frame(right_frame)
+                    record_frame.pack(fill='x', pady=3)
+                    
+                    # 排名
+                    Label(record_frame, text=rank_text, width=5, font=("Helvetica", 12, "bold"),
+                          fg=rank_color).pack(side='left', padx=5)
+                    
+                    # 用户名
+                    Label(record_frame, text=record['username'], width=10, font=("Helvetica", 12),
+                          fg=name_color).pack(side='left', padx=40)
+                    
+                    # 分数
+                    Label(record_frame, text=str(record['score']), width=10, font=("Helvetica", 12, "bold"),
+                          fg=score_color).pack(side='left', padx=5)
+                    
+                    # 步数
+                    Label(record_frame, text=str(record['steps']), width=5, font=("Helvetica", 12),
+                          fg='#7f8c8d').pack(side='left', padx=30)
+                    
+                    # 添加分隔线（除了最后一条记录）
+                    if i < len(leaderboard):
+                        separator = Frame(record_frame, height=1, bg='#ecf0f1')
+                        separator.pack(fill='x', pady=(3, 0))
+                
+                # 底部装饰线
+                Frame(right_frame, height=1, bg='#ecf0f1').pack(fill='x', pady=(10, 0))
+            else:
+                Label(right_frame, text='暂无排行榜数据', font=("Helvetica", 12),
+                      fg='#7f8c8d').pack(pady=10)
+        except Exception as e:
+            print(f"获取排行榜失败: {e}")
+            Label(right_frame, text='获取排行榜失败', font=("Helvetica", 12),
+                  fg='#7f8c8d').pack(pady=10)
 
     def start_game(self):
         if self.start_frame:
@@ -307,6 +456,51 @@ class Game2048():
         setting_info = Setting(data=current_parameter)
         self.root.wait_window(setting_info)
         return setting_info.userinfo
+
+    def update_leaderboard(self):
+        """更新排行榜显示"""
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect(('127.0.0.1', 20480))
+            
+            request = {
+                'action': 'get_leaderboard'
+            }
+            client.send(json.dumps(request).encode('utf-8'))
+            response = json.loads(client.recv(4096).decode('utf-8'))
+            client.close()
+            
+            # 清除旧的排行榜显示
+            if hasattr(self, 'right_frame'):
+                for widget in self.right_frame.winfo_children():
+                    if isinstance(widget, Frame):
+                        widget.destroy()
+            
+            if response and response.get('status') == 'success':
+                leaderboard = response.get('leaderboard', [])
+                
+                # 创建表头
+                header_frame = Frame(self.right_frame)
+                header_frame.pack(fill='x', pady=5)
+                Label(header_frame, text='排名', width=5, font=("Helvetica", 12, "bold")).pack(side='left', padx=5)
+                Label(header_frame, text='用户名', width=15, font=("Helvetica", 12, "bold")).pack(side='left', padx=5)
+                Label(header_frame, text='分数', width=8, font=("Helvetica", 12, "bold")).pack(side='left', padx=5)
+                Label(header_frame, text='步数', width=8, font=("Helvetica", 12, "bold")).pack(side='left', padx=5)
+                
+                # 显示排行榜数据
+                for i, record in enumerate(leaderboard, 1):
+                    record_frame = Frame(self.right_frame)
+                    record_frame.pack(fill='x', pady=2)
+                    Label(record_frame, text=str(i), width=5).pack(side='left', padx=5)
+                    Label(record_frame, text=record['username'], width=15).pack(side='left', padx=40)
+                    Label(record_frame, text=str(record['score']), width=8).pack(side='left', padx=5)
+                    Label(record_frame, text=str(record['steps']), width=8).pack(side='left', padx=30)
+            else:
+                Label(self.right_frame, text='暂无排行榜数据', font=("Helvetica", 12)).pack(pady=10)
+        except Exception as e:
+            print(f"更新排行榜失败: {e}")
+            Label(self.right_frame, text='获取排行榜失败', font=("Helvetica", 12)).pack(pady=10)
+
 # 弹出设置窗口
 class Setting(Toplevel):
     def __init__(self, data):

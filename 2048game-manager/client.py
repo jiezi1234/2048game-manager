@@ -63,6 +63,64 @@ class AuthGUI:
         Button(buttons_frame, text='退出系统', font=("Helvetica", 16), width=15,
                command=self.root.quit).pack(pady=10)
 
+    def get_leaderboard(self):
+        """获取排行榜数据"""
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect(('127.0.0.1', 20480))
+            
+            request = {
+                'action': 'get_leaderboard'
+            }
+            print("发送排行榜请求...")
+            client.send(json.dumps(request).encode('utf-8'))
+            response = json.loads(client.recv(4096).decode('utf-8'))
+            print(f"收到服务器响应: {response}")
+            client.close()
+            return response
+        except Exception as e:
+            print(f"获取排行榜失败: {e}")
+            return None
+
+    def show_leaderboard(self):
+        """显示排行榜"""
+        # 创建排行榜框架
+        leaderboard_frame = Frame(self.main_frame)
+        leaderboard_frame.pack(pady=20)
+        
+        Label(leaderboard_frame, text='排行榜', font=("Helvetica", 18, "bold")).pack(pady=10)
+        
+        # 获取排行榜数据
+        print("正在获取排行榜数据...")
+        response = self.get_leaderboard()
+        print(f"排行榜响应: {response}")
+        if response and response.get('status') == 'success':
+            leaderboard = response.get('leaderboard', [])
+            print(f"排行榜数据: {leaderboard}")
+            
+            if not leaderboard:
+                Label(leaderboard_frame, text='暂无排行榜数据', font=("Helvetica", 12)).pack(pady=10)
+                return
+                
+            # 创建表头
+            header_frame = Frame(leaderboard_frame)
+            header_frame.pack(fill='x', pady=5)
+            Label(header_frame, text='排名', width=5, font=("Helvetica", 12, "bold")).pack(side='left', padx=5)
+            Label(header_frame, text='用户名', width=15, font=("Helvetica", 12, "bold")).pack(side='left', padx=5)
+            Label(header_frame, text='分数', width=8, font=("Helvetica", 12, "bold")).pack(side='left', padx=5)
+            Label(header_frame, text='步数', width=8, font=("Helvetica", 12, "bold")).pack(side='left', padx=5)
+            
+            # 显示排行榜数据
+            for i, record in enumerate(leaderboard, 1):
+                record_frame = Frame(leaderboard_frame)
+                record_frame.pack(fill='x', pady=2)
+                Label(record_frame, text=str(i), width=5).pack(side='left', padx=5)
+                Label(record_frame, text=record['username'], width=15).pack(side='left', padx=5)
+                Label(record_frame, text=str(record['score']), width=8).pack(side='left', padx=5)
+                Label(record_frame, text=str(record['steps']), width=8).pack(side='left', padx=5)
+        else:
+            Label(leaderboard_frame, text='获取排行榜失败', font=("Helvetica", 12)).pack(pady=10)
+
     def show_register_window(self):
         """显示注册窗口"""
         register_window = Toplevel(self.root)

@@ -276,6 +276,35 @@ class AuthManager:
         finally:
             cursor.close()
 
+    def get_leaderboard(self):
+        """获取排行榜前五名"""
+        cursor = self.db_connection.cursor()
+        try:
+            # 获取前五名记录，按分数降序，步数升序排序
+            cursor.execute("""
+                SELECT u.username, r.score, r.step, r.created_at 
+                FROM record r 
+                JOIN user u ON r.uid = u.uid 
+                ORDER BY r.score DESC, r.step ASC 
+                LIMIT 5
+            """)
+            
+            leaderboard = []
+            for row in cursor.fetchall():
+                leaderboard.append({
+                    'username': row[0],
+                    'score': row[1],
+                    'steps': row[2],
+                    'created_at': row[3].strftime('%Y-%m-%d %H:%M:%S')
+                })
+            
+            return {'status': 'success', 'leaderboard': leaderboard}
+        except Error as e:
+            print(f"获取排行榜错误: {e}")
+            return {'status': 'error', 'message': '服务器错误'}
+        finally:
+            cursor.close()
+
     def handle_client(self, client_socket, address):
         """处理客户端连接"""
         print(f"接受来自 {address} 的连接")
@@ -318,6 +347,8 @@ class AuthManager:
                         )
                     elif action == 'get_records':
                         response = self.get_records(request.get('session_id'))
+                    elif action == 'get_leaderboard':
+                        response = self.get_leaderboard()
 
                     if response:
                         client_socket.send(json.dumps(response).encode('utf-8'))
