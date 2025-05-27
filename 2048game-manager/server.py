@@ -9,8 +9,13 @@ import threading
 import signal
 import sys
 
+#服务器监听的ip和端口
+host = "127.0.0.1"
+#host = "10.29.107.164"
+port = 20480
+
 class GameServer2048:
-    def __init__(self, host='127.0.0.1', port=20480):
+    def __init__(self, host = host, port = port):
         self.host = host
         self.port = port
         self.server_socket = None
