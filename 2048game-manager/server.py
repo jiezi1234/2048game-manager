@@ -9,7 +9,7 @@ import threading
 import signal
 import sys
 
-class AuthManager:
+class GameServer2048:
     def __init__(self, host='127.0.0.1', port=20480):
         self.host = host
         self.port = port
@@ -17,6 +17,10 @@ class AuthManager:
         self.db_connection = None
         self.running = True
         self.setup_database()
+        
+        # 添加残局对战相关属性
+        self.battle_rooms = {}  # 存储对战房间信息
+        self.battle_requests = {}  # 存储对战请求
         
         # 设置信号处理
         signal.signal(signal.SIGINT, self.handle_shutdown)
@@ -305,6 +309,147 @@ class AuthManager:
         finally:
             cursor.close()
 
+    def create_battle_room(self, uid1, uid2):
+        """创建对战房间"""
+        cursor = self.db_connection.cursor()
+        try:
+            room_id = hashlib.sha256(f"{uid1}{uid2}{datetime.now().timestamp()}".encode()).hexdigest()[:8]
+            cursor.execute(
+                "INSERT INTO battle_room (room_id, uid1, uid2, started, created_at) VALUES (%s, %s, %s, %s, %s)",
+                (room_id, uid1, uid2, False, datetime.now())
+            )
+            self.db_connection.commit()
+            return room_id
+        except Error as e:
+            print(f"创建对战房间错误: {e}")
+            return None
+        finally:
+            cursor.close()
+
+    def get_battle_room(self, room_id):
+        """获取对战房间信息"""
+        cursor = self.db_connection.cursor(dictionary=True)
+        try:
+            cursor.execute(
+                "SELECT * FROM battle_room WHERE room_id = %s",
+                (room_id,)
+            )
+            return cursor.fetchone()
+        finally:
+            cursor.close()
+
+    def update_battle_state(self, room_id, uid, state):
+        """更新对战状态"""
+        cursor = self.db_connection.cursor()
+        try:
+            # 检查房间是否存在
+            cursor.execute("SELECT room_id FROM battle_room WHERE room_id = %s", (room_id,))
+            if not cursor.fetchone():
+                return {'status': 'error', 'message': '房间不存在'}
+
+            # 检查用户是否在房间中
+            cursor.execute("""
+                SELECT uid1, uid2 FROM battle_room 
+                WHERE room_id = %s AND (uid1 = %s OR uid2 = %s)
+            """, (room_id, uid, uid))
+            if not cursor.fetchone():
+                return {'status': 'error', 'message': '用户不在房间中'}
+
+            # 更新或插入状态
+            try:
+                current_time = datetime.now()
+                cursor.execute("""
+                    INSERT INTO battle_state (room_id, uid, score, steps, updated_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                    score = VALUES(score),
+                    steps = VALUES(steps),
+                    updated_at = VALUES(updated_at)
+                """, (room_id, uid, state['score'], state['steps'], current_time))
+                
+                self.db_connection.commit()
+                return {
+                    'status': 'success',
+                    'message': '状态更新成功',
+                    'updated_at': current_time.strftime('%Y-%m-%d %H:%M:%S')
+                }
+            except Error as e:
+                self.db_connection.rollback()
+                print(f"更新对战状态数据库错误: {e}")
+                return {'status': 'error', 'message': '数据库更新失败'}
+            
+        except Error as e:
+            print(f"更新对战状态错误: {e}")
+            return {'status': 'error', 'message': '服务器错误'}
+        finally:
+            cursor.close()
+
+    def get_battle_state(self, room_id, uid):
+        """获取对战状态"""
+        cursor = self.db_connection.cursor(dictionary=True)
+        try:
+            # 获取房间信息
+            cursor.execute("SELECT * FROM battle_room WHERE room_id = %s", (room_id,))
+            room = cursor.fetchone()
+            if not room:
+                return None
+
+            # 获取对手状态
+            opponent_uid = room['uid2'] if room['uid1'] == uid else room['uid1']
+            cursor.execute("""
+                SELECT score, steps, updated_at 
+                FROM battle_state 
+                WHERE room_id = %s AND uid = %s
+                ORDER BY updated_at DESC 
+                LIMIT 1
+            """, (room_id, opponent_uid))
+            
+            opponent_state = cursor.fetchone()
+            
+            # 将datetime对象转换为字符串
+            if opponent_state and 'updated_at' in opponent_state:
+                opponent_state['updated_at'] = opponent_state['updated_at'].strftime('%Y-%m-%d %H:%M:%S')
+            
+            return {
+                'status': 'success',
+                'opponent_state': opponent_state,
+                'started': room['started']
+            }
+        except Error as e:
+            print(f"获取对战状态错误: {e}")
+            return None
+        finally:
+            cursor.close()
+
+    def join_battle_room(self, room_id, uid):
+        """加入对战房间"""
+        cursor = self.db_connection.cursor()
+        try:
+            # 检查房间是否存在且未满
+            cursor.execute("""
+                SELECT uid2 FROM battle_room 
+                WHERE room_id = %s AND uid2 IS NULL
+            """, (room_id,))
+            room = cursor.fetchone()
+            
+            if not room:
+                return {'status': 'error', 'message': '房间已满或不存在'}
+                
+            # 更新房间信息
+            cursor.execute("""
+                UPDATE battle_room 
+                SET uid2 = %s, started = TRUE 
+                WHERE room_id = %s
+            """, (uid, room_id))
+            
+            self.db_connection.commit()
+            return {'status': 'success', 'room_id': room_id}
+        except Error as e:
+            print(f"加入对战房间错误: {e}")
+            return {'status': 'error', 'message': '服务器错误'}
+        finally:
+            cursor.close()
+
     def handle_client(self, client_socket, address):
         """处理客户端连接"""
         print(f"接受来自 {address} 的连接")
@@ -349,6 +494,43 @@ class AuthManager:
                         response = self.get_records(request.get('session_id'))
                     elif action == 'get_leaderboard':
                         response = self.get_leaderboard()
+                    # 添加残局对战相关的处理
+                    elif action == 'create_battle':
+                        uid = self.verify_session(request.get('session_id'))
+                        if uid:
+                            room_id = self.create_battle_room(uid, None)
+                            if room_id:
+                                response = {'status': 'success', 'room_id': room_id}
+                            else:
+                                response = {'status': 'error', 'message': '创建房间失败'}
+                        else:
+                            response = {'status': 'error', 'message': '无效的会话'}
+                    elif action == 'join_battle':
+                        uid = self.verify_session(request.get('session_id'))
+                        room_id = request.get('room_id')
+                        if uid:
+                            response = self.join_battle_room(room_id, uid)
+                        else:
+                            response = {'status': 'error', 'message': '无效的会话'}
+                    elif action == 'update_battle_state':
+                        uid = self.verify_session(request.get('session_id'))
+                        room_id = request.get('room_id')
+                        state = request.get('state')
+                        if uid and room_id and state:
+                            response = self.update_battle_state(room_id, uid, state)
+                        else:
+                            response = {'status': 'error', 'message': '参数不完整'}
+                    elif action == 'get_battle_state':
+                        uid = self.verify_session(request.get('session_id'))
+                        room_id = request.get('room_id')
+                        if uid:
+                            result = self.get_battle_state(room_id, uid)
+                            if result:
+                                response = result
+                            else:
+                                response = {'status': 'error', 'message': '获取状态失败'}
+                        else:
+                            response = {'status': 'error', 'message': '无效的会话'}
 
                     if response:
                         client_socket.send(json.dumps(response).encode('utf-8'))
@@ -396,5 +578,5 @@ class AuthManager:
                 self.db_connection.close()
 
 if __name__ == "__main__":
-    server = AuthManager()
+    server = GameServer2048()
     server.start()

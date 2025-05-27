@@ -7,6 +7,8 @@ import subprocess
 import sys
 import os
 import signal
+import threading
+import time
 
 class AuthGUI:
     def __init__(self, root):
@@ -14,6 +16,10 @@ class AuthGUI:
         self.admin_process = None
         self.game_window = None
         self.session_id = None
+        self.battle_window = None
+        self.battle_room_id = None
+        self.battle_update_thread = None
+        self.stop_battle_update = False
 
         # 设置窗口关闭事件处理
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -243,6 +249,7 @@ class AuthGUI:
                     if user_type == "user":
                         self.root.withdraw()
                         self.game_window = Toplevel()
+                        self.game_window.session_id = self.session_id  # 设置session_id
                         self.game_window.protocol("WM_DELETE_WINDOW", self.on_game_close)
                         game = Game2048(self.game_window)
                         
@@ -360,6 +367,164 @@ class AuthGUI:
                     self.game_window.destroy()
                 # 关闭主窗口
                 self.root.quit()
+
+    def show_battle_window(self):
+        """显示残局对战窗口"""
+        if not self.session_id:
+            messagebox.showwarning("警告", "请先登录！")
+            return
+            
+        self.battle_window = Toplevel(self.root)
+        self.battle_window.title("残局对战")
+        self.battle_window.geometry("600x400")
+        
+        frame = Frame(self.battle_window, padx=20, pady=20)
+        frame.pack(expand='yes', fill='both')
+        
+        # 创建房间按钮
+        Button(frame, text='创建房间', font=("Helvetica", 14), width=15,
+               command=self.create_battle_room).pack(pady=10)
+        
+        # 加入房间区域
+        join_frame = Frame(frame)
+        join_frame.pack(pady=10)
+        
+        Label(join_frame, text='房间号:', font=("Helvetica", 14)).pack(side='left', padx=5)
+        self.room_entry = Entry(join_frame, font=("Helvetica", 14), width=10)
+        self.room_entry.pack(side='left', padx=5)
+        
+        Button(join_frame, text='加入房间', font=("Helvetica", 14),
+               command=self.join_battle_room).pack(side='left', padx=5)
+
+    def create_battle_room(self):
+        """创建对战房间"""
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect(('127.0.0.1', 20480))
+            
+            request = {
+                'action': 'create_battle',
+                'session_id': self.session_id
+            }
+            
+            client.send(json.dumps(request).encode('utf-8'))
+            response = json.loads(client.recv(4096).decode('utf-8'))
+            
+            if response['status'] == 'success':
+                self.battle_room_id = response['room_id']
+                messagebox.showinfo("成功", f"房间创建成功！房间号：{self.battle_room_id}")
+                self.start_battle_game()
+            else:
+                messagebox.showerror("错误", response['message'])
+        except Exception as e:
+            messagebox.showerror("错误", f"创建房间失败: {str(e)}")
+        finally:
+            client.close()
+
+    def join_battle_room(self):
+        """加入对战房间"""
+        room_id = self.room_entry.get()
+        if not room_id:
+            messagebox.showwarning("警告", "请输入房间号！")
+            return
+            
+        try:
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect(('127.0.0.1', 20480))
+            
+            request = {
+                'action': 'join_battle',
+                'session_id': self.session_id,
+                'room_id': room_id
+            }
+            
+            client.send(json.dumps(request).encode('utf-8'))
+            response = json.loads(client.recv(4096).decode('utf-8'))
+            
+            if response['status'] == 'success':
+                self.battle_room_id = room_id
+                messagebox.showinfo("成功", "成功加入房间！")
+                self.start_battle_game()
+            else:
+                messagebox.showerror("错误", response['message'])
+        except Exception as e:
+            messagebox.showerror("错误", f"加入房间失败: {str(e)}")
+        finally:
+            client.close()
+
+    def start_battle_game(self):
+        """开始对战游戏"""
+        if self.battle_window:
+            self.battle_window.destroy()
+            
+        self.root.withdraw()
+        self.game_window = Toplevel()
+        self.game_window.protocol("WM_DELETE_WINDOW", self.on_battle_game_close)
+        
+        # 创建游戏实例
+        game = Game2048(self.game_window)
+        
+        # 启动状态更新线程
+        self.stop_battle_update = False
+        self.battle_update_thread = threading.Thread(target=self.update_battle_state, args=(game,))
+        self.battle_update_thread.daemon = True
+        self.battle_update_thread.start()
+        
+        # 绑定游戏结束事件
+        def on_game_over(event):
+            stats = game.get_game_stats()
+            self.send_game_record(stats['score'], stats['steps'])
+            self.stop_battle_update = True
+            
+        self.game_window.bind("<<GameOver>>", on_game_over)
+
+    def update_battle_state(self, game):
+        """更新对战状态"""
+        while not self.stop_battle_update:
+            try:
+                # 发送自己的状态
+                client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client.connect(('127.0.0.1', 20480))
+                
+                request = {
+                    'action': 'update_battle_state',
+                    'session_id': self.session_id,
+                    'room_id': self.battle_room_id,
+                    'state': game.get_game_stats()
+                }
+                
+                client.send(json.dumps(request).encode('utf-8'))
+                response = json.loads(client.recv(4096).decode('utf-8'))
+                
+                if response['status'] == 'success':
+                    # 获取对手状态
+                    request = {
+                        'action': 'get_battle_state',
+                        'session_id': self.session_id,
+                        'room_id': self.battle_room_id
+                    }
+                    
+                    client.send(json.dumps(request).encode('utf-8'))
+                    response = json.loads(client.recv(4096).decode('utf-8'))
+                    
+                    if response['status'] == 'success' and response['opponent_state']:
+                        # 更新对手状态显示
+                        opponent_state = response['opponent_state']
+                        game.update_opponent_state(opponent_state)
+                
+                client.close()
+                time.sleep(1)  # 每秒更新一次
+            except Exception as e:
+                print(f"更新对战状态失败: {e}")
+                time.sleep(1)
+
+    def on_battle_game_close(self):
+        """处理对战游戏窗口关闭事件"""
+        if messagebox.askokcancel("退出", "确定要退出对战吗？"):
+            self.stop_battle_update = True
+            if self.game_window:
+                self.game_window.destroy()
+            self.root.deiconify()
 
 if __name__ == "__main__":
     root = Tk()

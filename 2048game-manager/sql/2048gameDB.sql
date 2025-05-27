@@ -42,3 +42,27 @@ CREATE TABLE IF NOT EXISTS record (
     step INT NOT NULL,
     FOREIGN KEY (uid) REFERENCES user(uid) ON DELETE CASCADE
 );
+
+-- 创建对战房间表
+CREATE TABLE IF NOT EXISTS battle_room (
+    room_id VARCHAR(8) PRIMARY KEY,
+    uid1 INT NOT NULL,
+    uid2 INT,
+    started BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at DATETIME NOT NULL,
+    FOREIGN KEY (uid1) REFERENCES user(uid) ON DELETE CASCADE,
+    FOREIGN KEY (uid2) REFERENCES user(uid) ON DELETE CASCADE
+);
+
+-- 创建对战状态表
+CREATE TABLE IF NOT EXISTS battle_state (
+    state_id INT PRIMARY KEY AUTO_INCREMENT,
+    room_id VARCHAR(8) NOT NULL,
+    uid INT NOT NULL,
+    score INT NOT NULL,
+    steps INT NOT NULL,
+    updated_at DATETIME NOT NULL,
+    FOREIGN KEY (room_id) REFERENCES battle_room(room_id) ON DELETE CASCADE,
+    FOREIGN KEY (uid) REFERENCES user(uid) ON DELETE CASCADE,
+    UNIQUE KEY unique_room_user (room_id, uid)
+);
