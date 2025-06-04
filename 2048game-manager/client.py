@@ -2,7 +2,9 @@
 import json
 import socket
 from tkinter import Tk, Frame, Label, Button, Entry, messagebox, Toplevel
+from config import host, port
 from main import Game2048
+from admin import AdminPanel
 import subprocess
 import sys
 import os
@@ -40,7 +42,7 @@ class AuthGUI:
             # 创建临时socket连接测试
             test_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             test_socket.settimeout(2)  # 设置2秒超时
-            test_socket.connect(('127.0.0.1', 20480))
+            test_socket.connect((host, port))
             test_socket.close()
             return True
         except (socket.timeout, ConnectionRefusedError) as e:
@@ -73,7 +75,7 @@ class AuthGUI:
         """获取排行榜数据"""
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect(('127.0.0.1', 20480))
+            client.connect((host, port))
             
             request = {
                 'action': 'get_leaderboard'
@@ -163,7 +165,7 @@ class AuthGUI:
                 
             try:
                 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                client.connect(('127.0.0.1', 20480))
+                client.connect((host, port))
                 
                 request = {
                     "action": "register",
@@ -229,7 +231,7 @@ class AuthGUI:
                 
             try:
                 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                client.connect(('127.0.0.1', 20480))
+                client.connect((host, port))
                 
                 request = {
                     "action": "login",
@@ -242,14 +244,14 @@ class AuthGUI:
                 response = json.loads(client.recv(4096).decode('utf-8'))
                 
                 if response['status'] == 'success':
-                    self.session_id = response['session_id']  # 保存会话ID
+                    self.session_id = response['session_id']
                     messagebox.showinfo("成功", "登录成功！")
                     login_window.destroy()
                     
                     if user_type == "user":
                         self.root.withdraw()
                         self.game_window = Toplevel()
-                        self.game_window.session_id = self.session_id  # 设置session_id
+                        self.game_window.session_id = self.session_id
                         self.game_window.protocol("WM_DELETE_WINDOW", self.on_game_close)
                         game = Game2048(self.game_window)
                         
@@ -262,27 +264,10 @@ class AuthGUI:
                     else:
                         # 启动管理员界面
                         self.root.withdraw()
-                        try:
-                            # 获取当前脚本所在目录
-                            current_dir = os.path.dirname(os.path.abspath(__file__))
-                            admin_path = os.path.join(current_dir, "admin.py")
-                            
-                            # 使用Python解释器启动admin.py
-                            self.admin_process = subprocess.Popen([sys.executable, admin_path])
-                            
-                            # 当管理员界面关闭时，显示主界面
-                            def check_admin_closed():
-                                if self.admin_process and self.admin_process.poll() is not None:
-                                    # 管理员进程已结束
-                                    self.admin_process = None
-                                    self.root.deiconify()
-                                    return
-                                self.root.after(1000, check_admin_closed)
-                            
-                            self.root.after(1000, check_admin_closed)
-                        except Exception as e:
-                            messagebox.showerror("错误", f"启动管理员界面失败: {str(e)}")
-                            self.root.deiconify()
+                        self.admin_window = Toplevel()
+                        self.admin_window.session_id = self.session_id
+                        self.admin_window.protocol("WM_DELETE_WINDOW", self.on_admin_close)
+                        admin_panel = AdminPanel(self.admin_window)
                 else:
                     messagebox.showerror("错误", response['message'])
             except Exception as e:
@@ -297,7 +282,7 @@ class AuthGUI:
         """发送游戏记录到服务器"""
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect(('127.0.0.1', 20480))
+            client.connect((host, port))
             
             request = {
                 "action": "save_record",
@@ -323,7 +308,7 @@ class AuthGUI:
                 # 发送登出请求
                 if self.session_id:
                     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    client.connect(('127.0.0.1', 20480))
+                    client.connect((host, port))
                     request = {
                         "action": "logout",
                         "session_id": self.session_id
@@ -338,6 +323,28 @@ class AuthGUI:
                 self.session_id = None
                 self.root.deiconify()
 
+    def on_admin_close(self):
+        """处理管理员界面关闭事件"""
+        try:
+            # 发送登出请求
+            if self.session_id:
+                client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client.connect((host, port))
+                request = {
+                    "action": "logout",
+                    "session_id": self.session_id
+                }
+                client.send(json.dumps(request).encode('utf-8'))
+                client.close()
+        except:
+            pass  # 忽略登出时的错误
+        finally:
+            # 关闭管理员窗口（如果存在）
+            if self.admin_window:
+                self.admin_window.destroy()
+            self.session_id = None
+            self.root.deiconify()
+
     def on_closing(self):
         """处理主窗口关闭事件"""
         if messagebox.askokcancel("退出", "确定要退出系统吗？"):
@@ -345,7 +352,7 @@ class AuthGUI:
                 # 发送登出请求
                 if self.session_id:
                     client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    client.connect(('127.0.0.1', 20480))
+                    client.connect((host, port))
                     request = {
                         "action": "logout",
                         "session_id": self.session_id
@@ -355,13 +362,9 @@ class AuthGUI:
             except:
                 pass  # 忽略登出时的错误
             finally:
-                # 关闭管理员进程（如果存在）
-                if self.admin_process:
-                    try:
-                        self.admin_process.terminate()
-                        self.admin_process.wait(timeout=5)
-                    except:
-                        self.admin_process.kill()
+                # 关闭管理员窗口（如果存在）
+                if self.admin_window:
+                    self.admin_window.destroy()
                 # 关闭游戏窗口（如果存在）
                 if self.game_window:
                     self.game_window.destroy()
@@ -400,7 +403,7 @@ class AuthGUI:
         """创建对战房间"""
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect(('127.0.0.1', 20480))
+            client.connect((host, port))
             
             request = {
                 'action': 'create_battle',
@@ -430,7 +433,7 @@ class AuthGUI:
             
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect(('127.0.0.1', 20480))
+            client.connect((host, port))
             
             request = {
                 'action': 'join_battle',
@@ -484,7 +487,7 @@ class AuthGUI:
             try:
                 # 发送自己的状态
                 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                client.connect(('127.0.0.1', 20480))
+                client.connect((host, port))
                 
                 request = {
                     'action': 'update_battle_state',
@@ -525,6 +528,8 @@ class AuthGUI:
             if self.game_window:
                 self.game_window.destroy()
             self.root.deiconify()
+
+
 
 if __name__ == "__main__":
     root = Tk()

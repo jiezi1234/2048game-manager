@@ -455,6 +455,34 @@ class GameServer2048:
         finally:
             cursor.close()
 
+    def get_score_distribution(self):
+        """获取用户得分分布数据"""
+        cursor = self.db_connection.cursor()
+        try:
+            # 获取所有用户的最高分
+            cursor.execute("""
+                SELECT u.username, MAX(r.score) as max_score
+                FROM user u
+                JOIN record r ON u.uid = r.uid
+                WHERE u.is_admin = FALSE
+                GROUP BY u.uid, u.username
+                ORDER BY max_score DESC
+            """)
+            
+            distribution = []
+            for row in cursor.fetchall():
+                distribution.append({
+                    'username': row[0],
+                    'max_score': row[1]
+                })
+            
+            return {'status': 'success', 'distribution': distribution}
+        except Error as e:
+            print(f"获取得分分布错误: {e}")
+            return {'status': 'error', 'message': '服务器错误'}
+        finally:
+            cursor.close()
+
     def handle_client(self, client_socket, address):
         """处理客户端连接"""
         print(f"接受来自 {address} 的连接")
@@ -499,7 +527,6 @@ class GameServer2048:
                         response = self.get_records(request.get('session_id'))
                     elif action == 'get_leaderboard':
                         response = self.get_leaderboard()
-                    # 添加残局对战相关的处理
                     elif action == 'create_battle':
                         uid = self.verify_session(request.get('session_id'))
                         if uid:
@@ -536,6 +563,8 @@ class GameServer2048:
                                 response = {'status': 'error', 'message': '获取状态失败'}
                         else:
                             response = {'status': 'error', 'message': '无效的会话'}
+                    elif action == 'get_score_distribution':
+                        response = self.get_score_distribution()
 
                     if response:
                         client_socket.send(json.dumps(response).encode('utf-8'))

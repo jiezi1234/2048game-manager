@@ -1,11 +1,11 @@
-model.png是数据库模型图
-2048gameDB.sql是在MYSQL中创建数据库时使用的脚本，已包含创建数据库和相应权限的用户的语句，其中：
+数据库基本信息：
 host = 127.0.0.1
 port = 3306
 dbname  =‘game2048’
 username =‘manager2048’
 userpassword = ‘2147483647’
-
+2048gameDB.sql是在MYSQL中创建数据库时使用的脚本，已包含创建上述数据库和相应权限的用户的语句，
+add_admin.sql是在数据库中创建管理员的样例
 
 服务器与客户端之间的通信格式，主要有以下几种请求类型：
 1. 登录请求 (login)
@@ -75,5 +75,3 @@ userpassword = ‘2147483647’
 除了登录请求外，其他请求都需要提供有效的 session_id
 服务器返回的 status 字段只有 "success" 和 "error" 两种状态
 所有通信都使用 JSON 格式，并且使用 UTF-8 编码
-游戏记录查询最多返回最近10条记录
-密码在传输前应该由客户端进行 SHA-256 加密

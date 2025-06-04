@@ -9,6 +9,7 @@ import socket
 import json
 import threading
 import time
+from config import host, port
 
 # 获取项目根目录的绝对路径
 basic_dir = os.path.dirname(os.path.abspath(__file__))
@@ -50,7 +51,7 @@ class Game2048():
         """发送游戏记录到服务器"""
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect(('127.0.0.1', 20480))
+            client.connect((host, port))  # 使用导入的 host 和 port
             
             request = {
                 "action": "save_record",
@@ -135,7 +136,7 @@ class Game2048():
         # 获取排行榜数据
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect(('127.0.0.1', 20480))
+            client.connect((host, port))
             
             request = {
                 'action': 'get_leaderboard'
@@ -510,7 +511,7 @@ class Game2048():
         """更新排行榜显示"""
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect(('127.0.0.1', 20480))
+            client.connect((host, port))
             
             request = {
                 'action': 'get_leaderboard'
@@ -588,7 +589,7 @@ class Game2048():
         """创建对战房间"""
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect(('127.0.0.1', 20480))
+            client.connect((host, port))
             
             request = {
                 'action': 'create_battle',
@@ -618,7 +619,7 @@ class Game2048():
             
         try:
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect(('127.0.0.1', 20480))
+            client.connect((host, port))
             
             request = {
                 'action': 'join_battle',
@@ -691,7 +692,7 @@ class Game2048():
         while not self.stop_status_check:
             try:
                 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                client.connect(('127.0.0.1', 20480))
+                client.connect((host, port))
                 
                 request = {
                     'action': 'get_battle_state',
@@ -773,7 +774,7 @@ class Game2048():
                     
                 # 发送自己的状态
                 client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                client.connect(('127.0.0.1', 20480))
+                client.connect((host, port))
                 
                 request = {
                     'action': 'update_battle_state',
