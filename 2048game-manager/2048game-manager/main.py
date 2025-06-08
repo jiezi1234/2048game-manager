@@ -34,6 +34,7 @@ class Game2048():
         self.battle_room_id = None
         self.battle_update_thread = None
         self.stop_battle_update = False
+        self.recommendation_label = None  # 添加推荐标签
         
         # 从父窗口获取session_id
         if master:
@@ -317,6 +318,12 @@ class Game2048():
         self.info_frame = Frame(self.root, width=200)
         self.info_frame.pack(side='right', fill='y', padx=20)
         
+        # 添加推荐移动显示
+        self.recommendation_label = Label(self.info_frame, text='推荐移动: -', 
+                                       font=("Helvetica", 30, "bold"),
+                                       fg='#2ecc71')
+        self.recommendation_label.pack(pady=10)
+        
         # 添加自己的分数显示
         self.score_label = Label(self.info_frame, text=f'我的得分: {self.score}', 
                                font=("Helvetica", 20, "bold"),
@@ -409,6 +416,9 @@ class Game2048():
                                                height=self.size_label)
                 self.labels[f'lab{ord}'].pack(side='left',expand='YES',fill='both')
                 ord += 1
+        
+        # 更新推荐移动
+        self.update_recommendation()
 
     def button_move(self, direction):
         # 模拟键盘事件
@@ -481,6 +491,8 @@ class Game2048():
                 p = position[sample(range(position.shape[0]),number_new),:]
                 self.data[p[:,0],p[:,1]] = choice([2,4], number_new)
                 self.history_data = concatenate((self.data.reshape((1,self.length,self.length)),self.history_data[:4]))
+                # 更新推荐移动
+                self.update_recommendation()
             elif 0 not in self.data: # 判断游戏是否结束了
                 self.fail()
                 return
@@ -491,6 +503,8 @@ class Game2048():
             self.moves = 0  # 回退时重置步数
             self.update_score(0)  # 更新分数显示
             self.update_moves()  # 更新步数显示
+            # 更新推荐移动
+            self.update_recommendation()
         self.print_data()
 
     def setup_config(self):
@@ -815,6 +829,102 @@ class Game2048():
             if self.game_window:
                 self.game_window.destroy()
             self.root.deiconify()
+
+    def evaluate_move(self, direction):
+        """评估一个移动的分数"""
+        # 保存当前状态
+        data_old = self.data.copy()
+        score_old = self.score
+        
+        # 模拟移动
+        if direction in ['Left', 'Up']:
+            self.data = self.data.T if direction=='Up' else self.data
+            for i in range(self.length):
+                set_data = [n for n in self.data[i,:] if n != 0]
+                set_len = len(set_data)
+                position = 0
+                while position<set_len-1:
+                    two = set_data[position:position+2]
+                    if len(set(two))==1:
+                        merged_value = sum(two)
+                        set_data[position:position+2] = [merged_value,0]
+                    position += 1
+                not0 = [n for n in set_data if n != 0]
+                self.data[i,:] = append(not0, repeat(0, self.length-len(not0)))
+            self.data = self.data.T if direction=='Up' else self.data
+        elif direction in ['Right', 'Down']:
+            self.data = self.data.T if direction=='Down' else self.data
+            for i in range(self.length):
+                set_data = [n for n in self.data[i,:] if n != 0]
+                set_len = len(set_data)
+                position = set_len
+                while position>1:
+                    two = set_data[position-2:position]
+                    if len(set(two))==1:
+                        merged_value = sum(two)
+                        set_data[position-2:position] = [0,merged_value]
+                    position -= 1
+                not0 = [n for n in set_data if n != 0]
+                self.data[i,:] = append(repeat(0, self.length-len(not0)), not0)
+            self.data = self.data.T if direction=='Down' else self.data
+
+        # 计算分数
+        score = 0
+        
+        # 1. 计算空格数量
+        empty_cells = len(argwhere(self.data == 0))
+        score += empty_cells * 10
+        
+        # 2. 计算合并得分
+        merge_score = self.score - score_old
+        score += merge_score * 2
+        
+        # 3. 评估大数字的位置
+        max_value = self.data.max()
+        max_pos = argwhere(self.data == max_value)[0]
+        if max_pos[0] in [0, self.length-1] and max_pos[1] in [0, self.length-1]:
+            score += 50  # 大数字在角落
+        
+        # 4. 评估数字的单调性
+        monotonicity = 0
+        for i in range(self.length):
+            for j in range(self.length-1):
+                if self.data[i,j] >= self.data[i,j+1]:
+                    monotonicity += 1
+                if self.data[j,i] >= self.data[j+1,i]:
+                    monotonicity += 1
+        score += monotonicity * 5
+        
+        # 恢复原始状态
+        self.data = data_old
+        self.score = score_old
+        
+        return score
+
+    def get_best_move(self):
+        """获取最佳移动方向"""
+        moves = ['Up', 'Down', 'Left', 'Right']
+        scores = [self.evaluate_move(move) for move in moves]
+        best_move = moves[scores.index(max(scores))]
+        return best_move, max(scores)
+
+    def update_recommendation(self):
+        """更新推荐移动显示"""
+        if not self.recommendation_label:
+            return
+            
+        best_move, score = self.get_best_move()
+        direction_symbols = {
+            'Up': '↑',
+            'Down': '↓',
+            'Left': '←',
+            'Right': '→'
+        }
+        self.recommendation_label.config(
+            text=f'推荐移动: {direction_symbols[best_move]}',
+            font=("Helvetica", 30, "bold"),
+            fg='#2ecc71'
+        )
 
 # 弹出设置窗口
 class Setting(Toplevel):
